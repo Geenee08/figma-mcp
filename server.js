@@ -35,7 +35,13 @@ app.post('/search', async (req, res) => {
       }
       if (node.children) node.children.forEach(walk);
     };
-    walk(figmaData.document);
+    if (figmaData && figmaData.document) {
+        walk(figmaData.document);
+      } else {
+        console.error("❌ Invalid Figma file data:", figmaData);
+        return res.status(500).send("Failed to fetch valid file data from Figma.");
+      }
+      
 
     // 3. Call OpenAI to match relevant frames
     const openaiRes = await fetch('https://api.openai.com/v1/chat/completions', {
