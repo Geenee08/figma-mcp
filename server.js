@@ -10,6 +10,9 @@ app.use(bodyParser.json());
 // ✅ Use Railway environment variables
 const FIGMA_TOKEN = process.env.FIGMA_TOKEN;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+// Debug log: Confirm we are reading the right token from Railway
+console.log("🔐 Using Figma Token:", FIGMA_TOKEN ? FIGMA_TOKEN.slice(0, 10) + "..." : "Missing!");
+console.log("🧠 Using OpenAI Token:", OPENAI_API_KEY ? OPENAI_API_KEY.slice(0, 10) + "..." : "Missing!");
 
 app.post('/search', async (req, res) => {
   const { query, fileKey } = req.body;
