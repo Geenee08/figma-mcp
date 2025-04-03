@@ -3,6 +3,8 @@ const bodyParser = require('body-parser');
 const fetch = require('node-fetch');
 
 const app = express();
+const cors = require('cors');
+app.use(cors());
 app.use(bodyParser.json());
 
 // ✅ Use Railway environment variables
