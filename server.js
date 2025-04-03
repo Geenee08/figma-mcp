@@ -17,6 +17,9 @@ console.log("🧠 Using OpenAI Token:", OPENAI_API_KEY ? OPENAI_API_KEY.slice(0,
 app.post('/search', async (req, res) => {
   const { query, fileKey } = req.body;
 
+  console.log("📩 Received fileKey:", fileKey);
+
+
   try {
     // 1. Fetch Figma file JSON
     const figmaRes = await fetch(`https://api.figma.com/v1/files/${fileKey}`, {
