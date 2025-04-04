@@ -1,5 +1,6 @@
 const express = require('express');
 const bodyParser = require('body-parser');
+const cors = require('cors');
 const fetch = require('node-fetch');
 
 const app = express();
@@ -7,40 +8,47 @@ const cors = require('cors');
 app.use(cors());
 app.use(bodyParser.json());
 
-// ✅ Use Railway environment variables
 const FIGMA_TOKEN = process.env.FIGMA_TOKEN;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-// Debug log: Confirm we are reading the right token from Railway
+
 console.log("🔐 Using Figma Token:", FIGMA_TOKEN ? FIGMA_TOKEN.slice(0, 10) + "..." : "Missing!");
 console.log("🧠 Using OpenAI Token:", OPENAI_API_KEY ? OPENAI_API_KEY.slice(0, 10) + "..." : "Missing!");
 
 app.post('/search', async (req, res) => {
   const { query, fileKey } = req.body;
-
   console.log("📩 Received fileKey:", fileKey);
 
-
   try {
-    // 1. Fetch Figma file JSON
     const figmaRes = await fetch(`https://api.figma.com/v1/files/${fileKey}`, {
       headers: { 'X-Figma-Token': FIGMA_TOKEN }
     });
+
+    if (!figmaRes.ok) {
+      const errorText = await figmaRes.text();
+      console.error(`❌ Figma API error ${figmaRes.status}: ${errorText}`);
+      return res.status(figmaRes.status).send(`Failed to fetch file data from Figma: ${errorText}`);
+    }
+
     const figmaData = await figmaRes.json();
 
-    // 2. Extract frames and their text content
+    if (!figmaData || !figmaData.document) {
+      console.error("❌ Invalid Figma file data:", figmaData);
+      return res.status(500).send("Figma API did not return expected document structure.");
+    }
+
     const frames = [];
 
     const walk = (node) => {
-        if (node.type === 'FRAME') {
-          const texts = [];
-      
-          const extractText = (n) => {
-            if (n.type === 'TEXT') texts.push(n.characters || '');
-            if (n.children) n.children.forEach(extractText);
-          };
-          extractText(node);
-      
-          const metadata = {
+      if (node.type === 'FRAME') {
+        const texts = [];
+
+        const extractText = (n) => {
+          if (n.type === 'TEXT') texts.push(n.characters || '');
+          if (n.children) n.children.forEach(extractText);
+        };
+        extractText(node);
+
+        const metadata = {
             name: node.name,
             text: texts.join(' '),
             width: node.absoluteBoundingBox?.width || null,
@@ -50,24 +58,18 @@ app.post('/search', async (req, res) => {
             type: node.type,
             childCount: node.children?.length || 0
           };
-      
-          frames.push(metadata);
-        }
-      
-        if (node.children) node.children.forEach(walk);
-      };
-      
-
-
-    if (figmaData && figmaData.document) {
-        walk(figmaData.document);
-      } else {
-        console.error("❌ Invalid Figma file data:", figmaData);
-        return res.status(500).send("Failed to fetch valid file data from Figma.");
+          
+        frames.push({
+          name: node.name,
+          text: texts.join(' ')
+        });
       }
-      
 
-    // 3. Call OpenAI to match relevant frames
+      if (node.children) node.children.forEach(walk);
+    };
+
+    walk(figmaData.document);
+
     const openaiRes = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -79,7 +81,7 @@ app.post('/search', async (req, res) => {
         messages: [
           {
             role: 'system',
-            content: 'You are a design assistant. Based on the user\'s query and frame data, return a JSON array of matching frames. Each frame should include name and a short reason for match.'
+            content: 'You are a design assistant. Based on the user\'s query and frame data, return a JSON array of matching frames.'
           },
           {
             role: 'user',
@@ -94,21 +96,20 @@ app.post('/search', async (req, res) => {
 
     let matches = [];
     try {
-      matches = JSON.parse(text); // Expecting GPT to return JSON array
+      matches = JSON.parse(text); // Simplest version — breaks if GPT returns invalid JSON
     } catch (e) {
-      console.warn('GPT response could not be parsed:', text);
+      console.warn("⚠️ Failed to parse GPT response as JSON:", text);
       matches = [];
     }
 
     res.json(matches);
   } catch (err) {
-    console.error('Error in /search:', err);
+    console.error('❌ Error in /search:', err);
     res.status(500).send('Internal Server Error');
   }
 });
 
-// ✅ For Railway, start listening on the default port
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
-  console.log(`MCP server running on port ${PORT}`);
+  console.log(`✅ MCP server running on port ${PORT}`);
 });
