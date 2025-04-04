@@ -15,8 +15,10 @@ console.log("🧠 Using OpenAI Token:", OPENAI_API_KEY ? OPENAI_API_KEY.slice(0,
 
 app.post('/search', async (req, res) => {
   const { query, fileKey } = req.body;
+  console.log("📩 Received fileKey:", fileKey);
 
   try {
+    // Fetch file data from Figma REST API
     const figmaRes = await fetch(`https://api.figma.com/v1/files/${fileKey}`, {
       headers: { 'X-Figma-Token': FIGMA_TOKEN }
     });
@@ -34,6 +36,7 @@ app.post('/search', async (req, res) => {
       return res.status(500).send("Figma API did not return expected document structure.");
     }
 
+    // Walk through frames and collect text
     const frames = [];
 
     const walk = (node) => {
@@ -57,6 +60,7 @@ app.post('/search', async (req, res) => {
 
     walk(figmaData.document);
 
+    // Send frames + query to OpenAI (GPT-4)
     const openaiRes = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -80,13 +84,26 @@ app.post('/search', async (req, res) => {
 
     const aiResult = await openaiRes.json();
     const text = aiResult.choices[0].message.content;
+    console.log("🧠 GPT raw response:\n", text);
 
     let matches = [];
     try {
-      matches = JSON.parse(text); // Simplest version — breaks if GPT returns invalid JSON
+      // Remove markdown formatting if GPT included it
+      const cleaned = text.replace(/```json|```/g, '').trim();
+      matches = JSON.parse(cleaned);
+
+      if (!Array.isArray(matches)) {
+        throw new Error("Parsed result is not an array");
+      }
     } catch (e) {
       console.warn("⚠️ Failed to parse GPT response as JSON:", text);
-      matches = [];
+      return res.status(200).json([
+        {
+          name: "Error",
+          reason: "Could not parse GPT response. Check system prompt or frame data.",
+          confidence: "Low"
+        }
+      ]);
     }
 
     res.json(matches);
