@@ -4,7 +4,6 @@ const cors = require('cors');
 const fetch = require('node-fetch');
 
 const app = express();
-const cors = require('cors');
 app.use(cors());
 app.use(bodyParser.json());
 
@@ -48,17 +47,6 @@ app.post('/search', async (req, res) => {
         };
         extractText(node);
 
-        const metadata = {
-            name: node.name,
-            text: texts.join(' '),
-            width: node.absoluteBoundingBox?.width || null,
-            height: node.absoluteBoundingBox?.height || null,
-            x: node.absoluteBoundingBox?.x || null,
-            y: node.absoluteBoundingBox?.y || null,
-            type: node.type,
-            childCount: node.children?.length || 0
-          };
-          
         frames.push({
           name: node.name,
           text: texts.join(' ')
