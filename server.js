@@ -29,18 +29,35 @@ app.post('/search', async (req, res) => {
 
     // 2. Extract frames and their text content
     const frames = [];
-    const walk = (node) => {
-      if (node.type === 'FRAME') {
-        const texts = [];
-        const extractText = (n) => {
-          if (n.type === 'TEXT') texts.push(n.characters || '');
-          if (n.children) n.children.forEach(extractText);
-        };
-        extractText(node);
-        frames.push({ name: node.name, text: texts.join(' ') });
-      }
-      if (node.children) node.children.forEach(walk);
+
+const walk = (node) => {
+  if (node.type === 'FRAME') {
+    const texts = [];
+
+    const extractText = (n) => {
+      if (n.type === 'TEXT') texts.push(n.characters || '');
+      if (n.children) n.children.forEach(extractText);
     };
+    extractText(node);
+
+    const metadata = {
+      name: node.name,
+      text: texts.join(' '),
+      width: node.absoluteBoundingBox?.width || null,
+      height: node.absoluteBoundingBox?.height || null,
+      x: node.absoluteBoundingBox?.x || null,
+      y: node.absoluteBoundingBox?.y || null,
+      type: node.type,
+      childCount: node.children?.length || 0
+    };
+
+    frames.push(metadata);
+  }
+
+  if (node.children) node.children.forEach(walk);
+};
+
+
     if (figmaData && figmaData.document) {
         walk(figmaData.document);
       } else {
