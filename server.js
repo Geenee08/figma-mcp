@@ -18,7 +18,6 @@ app.post('/search', async (req, res) => {
   console.log("📩 Received fileKey:", fileKey);
 
   try {
-    // Fetch file data from Figma REST API
     const figmaRes = await fetch(`https://api.figma.com/v1/files/${fileKey}`, {
       headers: { 'X-Figma-Token': FIGMA_TOKEN }
     });
@@ -36,7 +35,6 @@ app.post('/search', async (req, res) => {
       return res.status(500).send("Figma API did not return expected document structure.");
     }
 
-    // Walk through frames and collect text
     const frames = [];
 
     const walk = (node) => {
@@ -51,7 +49,13 @@ app.post('/search', async (req, res) => {
 
         frames.push({
           name: node.name,
-          text: texts.join(' ')
+          text: texts.join(' '),
+          width: node.absoluteBoundingBox?.width || null,
+          height: node.absoluteBoundingBox?.height || null,
+          x: node.absoluteBoundingBox?.x || null,
+          y: node.absoluteBoundingBox?.y || null,
+          type: node.type,
+          childCount: node.children?.length || 0
         });
       }
 
@@ -60,7 +64,6 @@ app.post('/search', async (req, res) => {
 
     walk(figmaData.document);
 
-    // Send frames + query to OpenAI (GPT-4)
     const openaiRes = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -72,7 +75,35 @@ app.post('/search', async (req, res) => {
         messages: [
           {
             role: 'system',
-            content: 'You are a design assistant. Based on the user\'s query and frame data, return a JSON array of matching frames.'
+            content: `
+You are a UI search assistant. The user will give you a natural language query describing a type of screen they’re looking for. Your job is to analyze the list of frames and return matches — even if they are implicit.
+
+Each frame includes:
+- name
+- visible text content
+- width and height
+- x and y position
+- node type (e.g., FRAME)
+- child count (number of elements inside)
+
+Infer intent using layout + language. For example:
+- A small, centered frame with text like "invite", "accept", or "access" could be a permission modal
+- A large frame with the word "start", "let’s go", "welcome" might be onboarding
+- A screen with verbs like “add”, “complete”, “assign” might involve task execution
+
+Return a JSON array like this:
+
+[
+  {
+    "name": "Access Modal",
+    "reason": "Text includes 'invite' and frame is small and centered",
+    "confidence": "High"
+  },
+  ...
+]
+
+If no frames match, return an empty array.
+`
           },
           {
             role: 'user',
@@ -88,19 +119,17 @@ app.post('/search', async (req, res) => {
 
     let matches = [];
     try {
-      // Remove markdown formatting if GPT included it
       const cleaned = text.replace(/```json|```/g, '').trim();
       matches = JSON.parse(cleaned);
-
       if (!Array.isArray(matches)) {
         throw new Error("Parsed result is not an array");
       }
     } catch (e) {
-      console.warn("⚠️ Failed to parse GPT response as JSON:", text);
+      console.warn("⚠️ Failed to parse GPT response:", text);
       return res.status(200).json([
         {
           name: "Error",
-          reason: "Could not parse GPT response. Check system prompt or frame data.",
+          reason: "Could not parse GPT response. Check system prompt or formatting.",
           confidence: "Low"
         }
       ]);
