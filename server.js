@@ -93,10 +93,14 @@ const walk = (node) => {
               
               A frame can be a match even if the name does not include the keywords from the query — infer intent from the text, structure, and position. For example, a small centered frame with text like "invite", "accept", or "access" might be a permission modal.
               
-              Return a JSON array of matching frames. Each item should include:
-              - name: name of the frame
-              - reason: why you matched it
-              - confidence: high / medium / low
+              ✅ Return a JSON array like this:
+            [
+                {
+                 "name": "Access Modal",
+                 "reason": "Frame contains the phrase 'request access' and is small + centered.",
+                 "confidence": "High"
+                },
+                ]
               
               If no frames match, return an empty array.
               `
@@ -109,16 +113,18 @@ const walk = (node) => {
       })
     });
 
-    const aiResult = await openaiRes.json();
-    const text = aiResult.choices[0].message.content;
+    const aiText = aiResult.choices[0].message.content;
+let matches = [];
 
-    let matches = [];
-    try {
-      matches = JSON.parse(text); // Expecting GPT to return JSON array
-    } catch (e) {
-      console.warn('GPT response could not be parsed:', text);
-      matches = [];
-    }
+try {
+  // Strip out backticks, markdown formatting if GPT added it
+  const cleaned = aiText.replace(/```json|```/g, '').trim();
+  matches = JSON.parse(cleaned);
+} catch (e) {
+  console.warn("⚠️ GPT returned invalid JSON:", aiText);
+  matches = [];
+}
+
 
     res.json(matches);
   } catch (err) {
