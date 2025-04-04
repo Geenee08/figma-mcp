@@ -18,6 +18,7 @@ app.post('/search', async (req, res) => {
   console.log("📩 Received fileKey:", fileKey);
 
   try {
+    // Fetch file from Figma
     const figmaRes = await fetch(`https://api.figma.com/v1/files/${fileKey}`, {
       headers: { 'X-Figma-Token': FIGMA_TOKEN }
     });
@@ -37,6 +38,7 @@ app.post('/search', async (req, res) => {
 
     const frames = [];
 
+    // Extract relevant data from frames
     const walk = (node) => {
       if (node.type === 'FRAME') {
         const texts = [];
@@ -64,6 +66,7 @@ app.post('/search', async (req, res) => {
 
     walk(figmaData.document);
 
+    // Call OpenAI with prompt + frame data
     const openaiRes = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -76,7 +79,9 @@ app.post('/search', async (req, res) => {
           {
             role: 'system',
             content: `
-You are a UI search assistant. The user will give you a natural language query describing a type of screen they’re looking for. Your job is to analyze the list of frames and return matches — even if they are implicit.
+You are a design reasoning assistant.
+
+The user will give you a natural language query like "show me permission modals" or "find onboarding screens". Your job is to review a list of Figma frames and return only the ones that best match the intent — even if the match is not explicit.
 
 Each frame includes:
 - name
@@ -84,25 +89,26 @@ Each frame includes:
 - width and height
 - x and y position
 - node type (e.g., FRAME)
-- child count (number of elements inside)
+- number of children (childCount)
 
-Infer intent using layout + language. For example:
-- A small, centered frame with text like "invite", "accept", or "access" could be a permission modal
-- A large frame with the word "start", "let’s go", "welcome" might be onboarding
-- A screen with verbs like “add”, “complete”, “assign” might involve task execution
+Your task is to:
+1. Infer semantic intent from the user's query
+2. Match based on meaning, not just keywords. Look for synonyms, context, UI language, and structure.
+3. Use layout info: small centered frames may be modals; large frames with intro text may be onboarding.
+4. Return a reason explaining your logic in plain English
+5. Rate your confidence: High / Medium / Low
 
 Return a JSON array like this:
 
 [
   {
-    "name": "Access Modal",
-    "reason": "Text includes 'invite' and frame is small and centered",
+    "name": "Invite Modal",
+    "reason": "Text includes 'invite', frame is small and centered, likely a permission modal.",
     "confidence": "High"
-  },
-  ...
+  }
 ]
 
-If no frames match, return an empty array.
+If no match, return an empty array: []
 `
           },
           {
@@ -121,11 +127,12 @@ If no frames match, return an empty array.
     try {
       const cleaned = text.replace(/```json|```/g, '').trim();
       matches = JSON.parse(cleaned);
+
       if (!Array.isArray(matches)) {
         throw new Error("Parsed result is not an array");
       }
     } catch (e) {
-      console.warn("⚠️ Failed to parse GPT response:", text);
+      console.warn("⚠️ Failed to parse GPT response as JSON:", text);
       return res.status(200).json([
         {
           name: "Error",
