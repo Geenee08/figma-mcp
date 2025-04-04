@@ -76,10 +76,31 @@ const walk = (node) => {
       body: JSON.stringify({
         model: 'gpt-4',
         messages: [
-          {
-            role: 'system',
-            content: 'You are a design assistant. Based on the user\'s query and frame data, return a JSON array of matching frames. Each frame should include name and a short reason for match.'
-          },
+            {
+                role: "system",
+                content: `
+              You are a design assistant that helps identify matching UI screens based on a natural language query.
+              
+              Each frame includes metadata such as:
+              - Name
+              - All visible text content
+              - Size (width/height)
+              - Position (x/y)
+              - Node type
+              - Number of children
+              
+              Use this information to understand the layout, intent, and function of each frame.
+              
+              A frame can be a match even if the name does not include the keywords from the query — infer intent from the text, structure, and position. For example, a small centered frame with text like "invite", "accept", or "access" might be a permission modal.
+              
+              Return a JSON array of matching frames. Each item should include:
+              - name: name of the frame
+              - reason: why you matched it
+              - confidence: high / medium / low
+              
+              If no frames match, return an empty array.
+              `
+              },
           {
             role: 'user',
             content: `User query: "${query}"\n\nFrames:\n${JSON.stringify(frames)}`
