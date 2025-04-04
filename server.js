@@ -30,32 +30,33 @@ app.post('/search', async (req, res) => {
     // 2. Extract frames and their text content
     const frames = [];
 
-const walk = (node) => {
-  if (node.type === 'FRAME') {
-    const texts = [];
-
-    const extractText = (n) => {
-      if (n.type === 'TEXT') texts.push(n.characters || '');
-      if (n.children) n.children.forEach(extractText);
-    };
-    extractText(node);
-
-    const metadata = {
-      name: node.name,
-      text: texts.join(' '),
-      width: node.absoluteBoundingBox?.width || null,
-      height: node.absoluteBoundingBox?.height || null,
-      x: node.absoluteBoundingBox?.x || null,
-      y: node.absoluteBoundingBox?.y || null,
-      type: node.type,
-      childCount: node.children?.length || 0
-    };
-
-    frames.push(metadata);
-  }
-
-  if (node.children) node.children.forEach(walk);
-};
+    const walk = (node) => {
+        if (node.type === 'FRAME') {
+          const texts = [];
+      
+          const extractText = (n) => {
+            if (n.type === 'TEXT') texts.push(n.characters || '');
+            if (n.children) n.children.forEach(extractText);
+          };
+          extractText(node);
+      
+          const metadata = {
+            name: node.name,
+            text: texts.join(' '),
+            width: node.absoluteBoundingBox?.width || null,
+            height: node.absoluteBoundingBox?.height || null,
+            x: node.absoluteBoundingBox?.x || null,
+            y: node.absoluteBoundingBox?.y || null,
+            type: node.type,
+            childCount: node.children?.length || 0
+          };
+      
+          frames.push(metadata);
+        }
+      
+        if (node.children) node.children.forEach(walk);
+      };
+      
 
 
     if (figmaData && figmaData.document) {
@@ -76,35 +77,10 @@ const walk = (node) => {
       body: JSON.stringify({
         model: 'gpt-4',
         messages: [
-            {
-                role: "system",
-                content: `
-              You are a design assistant that helps identify matching UI screens based on a natural language query.
-              
-              Each frame includes metadata such as:
-              - Name
-              - All visible text content
-              - Size (width/height)
-              - Position (x/y)
-              - Node type
-              - Number of children
-              
-              Use this information to understand the layout, intent, and function of each frame.
-              
-              A frame can be a match even if the name does not include the keywords from the query — infer intent from the text, structure, and position. For example, a small centered frame with text like "invite", "accept", or "access" might be a permission modal.
-              
-              ✅ Return a JSON array like this:
-            [
-                {
-                 "name": "Access Modal",
-                 "reason": "Frame contains the phrase 'request access' and is small + centered.",
-                 "confidence": "High"
-                },
-                ]
-              
-              If no frames match, return an empty array.
-              `
-              },
+          {
+            role: 'system',
+            content: 'You are a design assistant. Based on the user\'s query and frame data, return a JSON array of matching frames. Each frame should include name and a short reason for match.'
+          },
           {
             role: 'user',
             content: `User query: "${query}"\n\nFrames:\n${JSON.stringify(frames)}`
@@ -113,18 +89,16 @@ const walk = (node) => {
       })
     });
 
-    const aiText = aiResult.choices[0].message.content;
-let matches = [];
+    const aiResult = await openaiRes.json();
+    const text = aiResult.choices[0].message.content;
 
-try {
-  // Strip out backticks, markdown formatting if GPT added it
-  const cleaned = aiText.replace(/```json|```/g, '').trim();
-  matches = JSON.parse(cleaned);
-} catch (e) {
-  console.warn("⚠️ GPT returned invalid JSON:", aiText);
-  matches = [];
-}
-
+    let matches = [];
+    try {
+      matches = JSON.parse(text); // Expecting GPT to return JSON array
+    } catch (e) {
+      console.warn('GPT response could not be parsed:', text);
+      matches = [];
+    }
 
     res.json(matches);
   } catch (err) {
