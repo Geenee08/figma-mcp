@@ -153,6 +153,23 @@ If no match, return an empty array: []
 });
 
 const PORT = process.env.PORT || 8080;
+
+// Flow Analyzer route
+app.post('/flow-analyze', (req, res) => {
+  // 1. Extract the data from the request
+  const dataFromFigma = req.body;
+
+  // 2. Do something with that data (for now, we'll just respond with a message)
+  console.log('Received from plugin:', dataFromFigma);
+
+  // 3. Send a response
+  res.json({ message: 'Flow analyze route working!', dataReceived: dataFromFigma });
+});
+
+
+
+
+
 app.listen(PORT, () => {
   console.log(`✅ MCP server running on port ${PORT}`);
 });
