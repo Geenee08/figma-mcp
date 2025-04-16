@@ -155,32 +155,34 @@ If no match, return an empty array: []
 const PORT = process.env.PORT || 8080;
 
 // Flow Analyzer route
+/* ----------------------------------------------------
+ * Iteration A: just echo counts back to the plugin
+ * -------------------------------------------------- */
 app.post('/flow-analyze', (req, res) => {
-  const { flowData } = req.body;
-  if (!flowData) {
-    return res.status(400).json({ error: 'No flowData provided' });
+  const { diagramPayload, flowData } = req.body;   // flowData may arrive later
+
+  // If still using old flowData tests, keep the old branch
+  if (flowData && !diagramPayload) {
+    // …previous simple analysis code here (optional) …
+    return res.json({ message: 'legacy flowData path' });
   }
 
-  // Basic analysis: count frames & empty frames
-  let totalFrames = 0;
-  let emptyFrames = 0;
-
-  for (const page of flowData.pages) {
-    for (const frame of page.frames) {
-      totalFrames += 1;
-      if (frame.childCount === 0) emptyFrames += 1;
-    }
+  if (!diagramPayload) {
+    return res.status(400).json({ error: 'No diagramPayload provided' });
   }
 
-  const summary = {
-    totalPages:   flowData.totalPages,
-    totalFrames,
-    emptyFrames,
-    message:      'Flow analysis complete!'
+  const { steps = [], connectors = [], freeText = [] } = diagramPayload;
+  const counts = {
+    stepCount:       steps.length,
+    connectorCount:  connectors.length,
+    freeTextCount:   freeText.length,
+    message:         'Payload received OK'
   };
 
-  res.json(summary);
+  console.log('Diagram payload counts:', counts);
+  res.json(counts);
 });
+
 
 
 app.listen(PORT, () => {
