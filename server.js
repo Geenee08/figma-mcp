@@ -156,18 +156,31 @@ const PORT = process.env.PORT || 8080;
 
 // Flow Analyzer route
 app.post('/flow-analyze', (req, res) => {
-  // 1. Extract the data from the request
-  const dataFromFigma = req.body;
+  const { flowData } = req.body;
+  if (!flowData) {
+    return res.status(400).json({ error: 'No flowData provided' });
+  }
 
-  // 2. Do something with that data (for now, we'll just respond with a message)
-  console.log('Received from plugin:', dataFromFigma);
+  // Basic analysis: count frames & empty frames
+  let totalFrames = 0;
+  let emptyFrames = 0;
 
-  // 3. Send a response
-  res.json({ message: 'Flow analyze route working!', dataReceived: dataFromFigma });
+  for (const page of flowData.pages) {
+    for (const frame of page.frames) {
+      totalFrames += 1;
+      if (frame.childCount === 0) emptyFrames += 1;
+    }
+  }
+
+  const summary = {
+    totalPages:   flowData.totalPages,
+    totalFrames,
+    emptyFrames,
+    message:      'Flow analysis complete!'
+  };
+
+  res.json(summary);
 });
-
-
-
 
 
 app.listen(PORT, () => {
