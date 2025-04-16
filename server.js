@@ -158,29 +158,81 @@ const PORT = process.env.PORT || 8080;
 /* ----------------------------------------------------
  * Iteration A: just echo counts back to the plugin
  * -------------------------------------------------- */
-app.post('/flow-analyze', (req, res) => {
-  const { diagramPayload, flowData } = req.body;   // flowData may arrive later
-
-  // If still using old flowData tests, keep the old branch
-  if (flowData && !diagramPayload) {
-    // …previous simple analysis code here (optional) …
-    return res.json({ message: 'legacy flowData path' });
-  }
-
-  if (!diagramPayload) {
+app.post('/flow-analyze', async (req, res) => {
+  const { diagramPayload } = req.body;
+  if (!diagramPayload)
     return res.status(400).json({ error: 'No diagramPayload provided' });
-  }
 
-  const { steps = [], connectors = [], freeText = [] } = diagramPayload;
+  /* 1  Lightweight telemetry (counts only) */
+  const t0 = Date.now();
   const counts = {
-    stepCount:       steps.length,
-    connectorCount:  connectors.length,
-    freeTextCount:   freeText.length,
-    message:         'Payload received OK'
+    steps:       diagramPayload.steps.length,
+    connectors:  diagramPayload.connectors.length,
+    freeText:    diagramPayload.freeText.length
   };
+  console.log(`[${new Date().toISOString()}] analyse req —`, counts);
 
-  console.log('Diagram payload counts:', counts);
-  res.json(counts);
+  /* 2  Craft prompt */
+  const prompt = [
+    {
+      role: 'system',
+      content:
+        'You are a senior UX researcher analysing user‑journey diagrams.'
+    },
+    {
+      role: 'user',
+      content:
+`Here is a user‑journey diagram as JSON:
+
+${JSON.stringify(diagramPayload, null, 2)}
+
+TASKS
+1. Summarise the overall flow in 2‑3 sentences.
+2. Identify pain‑points and opportunities using any relevant UX / psychology
+   principles from Growth.Design (full catalogue).
+3. Rate severity (high / medium / low) and include a one‑line blurb of the principle.
+
+OUTPUT STRICTLY AS JSON WITH THIS SHAPE:
+{
+  "overview": "…",
+  "insights": [
+    {
+      "stepId": "123"   // or null for flow‑level
+      "pain":     "…",
+      "principle": {
+        "name": "Zeigarnik Effect",
+        "blurb": "People remember incomplete tasks…"
+      },
+      "severity": "high"
+    }
+  ]
+}`
+    }
+  ];
+
+  /* 3  Call OpenAI */
+  try {
+    const aiRes = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      temperature: 0.2,
+      max_tokens: 1000,
+      messages: prompt
+    });
+
+    const raw = aiRes.choices?.[0]?.message?.content || '{}';
+    const json = JSON.parse(raw);
+
+    /* 4  Return insights */
+    res.json(json);
+
+    console.log(
+      `…GPT ok (${((Date.now() - t0) / 1000).toFixed(1)} s, ` +
+      `${aiRes.usage.total_tokens} tok)`
+    );
+  } catch (err) {
+    console.error('GPT error:', err);
+    res.status(502).json({ error: 'LLM analysis failed, please retry.' });
+  }
 });
 
 
