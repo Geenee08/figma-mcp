@@ -4,6 +4,9 @@ const cors = require('cors');
 const fetch = require('node-fetch');
 
 const app = express();
+app.get('/', (req, res) => {
+  res.send('Hello from your MCP!');
+});
 app.use(cors());
 app.use(bodyParser.json());
 
