@@ -27,24 +27,21 @@ app.use(cors());
 app.options('*', cors());
 
 // 4) Root route (sanity check)
-app.get('/', (_req, res) => {
-  res.send('Hello from your MCP!');
-});
+app.get('/', (_req, res) => res.send('Hello from your MCP!'));
 
-// 5) (Optional) existing conversational‑search routes
-//    e.g. app.post('/search', …)
+// 5) (Optional) your existing conversational‑search routes here…
 
-// 6) Flow‑Analyzer endpoint with context‑aware prompt
+// 6) Flow‑Analyzer endpoint with label‑anchored context inference
 app.post('/flow-analyze', async (req, res) => {
   const { diagramPayload } = req.body;
   if (!diagramPayload) {
     return res.status(400).json({ error: 'No diagramPayload provided' });
   }
 
-  // Telemetry: log counts only
+  // Telemetry
   const t0 = Date.now();
   console.log(
-    `[${new Date().toISOString()}] analyse ->`,
+    `[${new Date().toISOString()}] analyse →`,
     {
       steps:      diagramPayload.steps.length,
       connectors: diagramPayload.connectors.length,
@@ -52,13 +49,17 @@ app.post('/flow-analyze', async (req, res) => {
     }
   );
 
-  // Build the updated prompt
+  // 7) Build the updated prompt
   const systemMsg = [
-    'You are a senior UX researcher analyzing user-journey diagrams.',
-    'You receive a set of labeled steps and directed edges (connectors).',
-    'Your first job is to extract the domain context, the user\'s primary goal, and a related sub-goal purely from the step labels.',
-    'Optionally list any keywords you spot that helped you infer this context.',
-    'Then focus exclusively on user motivations and emotional arcs.'
+    "You are a senior UX researcher analyzing user-journey diagrams.",
+    "You receive a set of labeled steps and directed edges (connectors).",
+    "Examine each step's `label` value to find domain clues (e.g. 'food delivery', 'cab booking', 'meeting').",
+    "From those labels, extract:",
+    "  • the domain context",
+    "  • the user's primary goal",
+    "  • a related sub-goal.",
+    "Optionally list any keywords you spotted.",
+    "Then focus exclusively on user motivations and emotional arcs."
   ].join(' ');
 
   const userMsg = `
@@ -72,13 +73,14 @@ TASK 1: Extract:
   • "subGoal" (secondary benefit or intent)
   • "extractedKeywords" (optional array of domain words)
 
-TASK 2: Provide a 2-3 sentence "overview" that weaves in the context, goal, and emotional arc.
+TASK 2: Provide a 2–3 sentence "overview" that weaves in the context, goal, and emotional arc.
 
 TASK 3: For each step, identify:
   • A pain-point in the user's motivation.
-  • One bullet "suggestion" to improve that step, grounded in a UX or psychology principle from Growth.Design.
+  • One bullet "suggestion" to improve that step, grounded in a UX/psychology principle from Growth.Design.
   • The principle name and a one-line blurb.
   • A "severity" (high/medium/low).
+  • **Include** the original "label" for clarity.
 
 TASK 4: List "keyTakeaways" for the overall flow (flow-level insights).
 
@@ -91,20 +93,23 @@ OUTPUT strictly as JSON following this schema:
   "overview": "...",
   "steps": [
     {
-      "stepId": "123",
-      "pain": "...",
-      "suggestion": "...",
-      "principle": { "name": "...", "blurb": "..." },
-      "severity": "high"
+      "stepId":    "...",
+      "label":     "...",
+      "pain":      "...",
+      "suggestion":"...",
+      "principle": { "name":"...", "blurb":"..." },
+      "severity":  "high"
     }
+    // …
   ],
   "keyTakeaways": [
-    { "message": "...", "severity": "medium" }
+    { "message":"...", "severity":"medium" }
+    // …
   ]
 }
 `.trim();
 
-  // Helper: strip ``` fences if present
+  // Helper to strip markdown fences
   function stripFences(raw) {
     const m = raw.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
     if (m && m[1]) return m[1].trim();
@@ -112,24 +117,23 @@ OUTPUT strictly as JSON following this schema:
   }
 
   try {
-    // Call the LLM
+    // 8) Call the LLM
     const aiRes = await openai.chat.completions.create({
-      model:      'gpt-4o-mini',
+      model:       'gpt-4o-mini',
       temperature: 0.2,
-      max_tokens: 1000,
+      max_tokens:  1000,
       messages: [
         { role: 'system', content: systemMsg },
         { role: 'user',   content: userMsg   }
       ]
     });
 
-    // Extract, clean, parse
     const raw     = aiRes.choices?.[0]?.message?.content || '';
     const cleaned = stripFences(raw);
 
-    let json;
+    let result;
     try {
-      json = JSON.parse(cleaned);
+      result = JSON.parse(cleaned);
     } catch (parseErr) {
       console.error('JSON.parse failed:', parseErr);
       console.error('Raw LLM output:', raw);
@@ -138,12 +142,12 @@ OUTPUT strictly as JSON following this schema:
         .json({ error: 'Invalid JSON from LLM, please retry.' });
     }
 
-    // Return structured insights
-    res.json(json);
+    // 9) Return structured insights
+    res.json(result);
 
     console.log(
-      `... GPT ok (${((Date.now() - t0)/1000).toFixed(1)}s, ` +
-      `${aiRes.usage.total_tokens} tok)`
+      `... GPT ok (${((Date.now() - t0)/1000).toFixed(1)}s, `
+      + `${aiRes.usage.total_tokens} tok)`
     );
   } catch (err) {
     console.error('LLM call failed:', err);
@@ -153,7 +157,7 @@ OUTPUT strictly as JSON following this schema:
   }
 });
 
-// 7) Start the server
+// 10) Start the server
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`MCP listening on port ${PORT}`);
