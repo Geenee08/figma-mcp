@@ -9,10 +9,11 @@ const openai = new OpenAI({
 
 const app = express();
 app.use(express.json());
+app.use(cors());
+
 app.get('/', (req, res) => {
   res.send('Hello from your MCP!');
 });
-app.use(cors());
 app.use(bodyParser.json());
 
 const FIGMA_TOKEN = process.env.FIGMA_TOKEN;
