@@ -47,7 +47,7 @@ app.get('/', (_req, res) => {
 // ——————————————————————————————————————————
 
 // ——————————————————————————————————————————
-// 6) Flow‑Analyzer endpoint with updated user‑journey prompt
+// 6) Flow‑Analyzer endpoint with context‑aware prompt
 // ——————————————————————————————————————————
 app.post('/flow-analyze', async (req, res) => {
   const { diagramPayload } = req.body;
@@ -68,9 +68,10 @@ app.post('/flow-analyze', async (req, res) => {
 
   // Build the updated prompt
   const systemMsg = [
-    "You are a senior UX researcher.",
-    "THIS IS A USER‑JOURNEY DIAGRAM (sequence of user actions and decisions), not a UI wireframe.",
-    "Focus exclusively on the user's motivations, emotional arc, and high‑level goal."
+    "You are a senior UX researcher analyzing user‑journey diagrams.",
+    "You receive a set of labeled steps and directed edges (connectors).",
+    "First infer the overall context and goal of the journey (e.g., onboarding for a food‑delivery app or a cab‑booking flow).",
+    "Then focus exclusively on user motivations and emotional arcs."
   ].join(' ');
 
   const userMsg = `
@@ -78,27 +79,29 @@ Here is a user‑journey diagram as JSON (up to 50 steps):
 
 ${JSON.stringify(diagramPayload, null, 2)}
 
-TASK 1: Summarise **what the user is trying to achieve** (their goal) and their emotional arc in 2–3 sentences.
+TASKS
+1. Provide a 2–3 sentence overview stating the inferred context/goal and emotional arc.
+2. For each step, identify:
+   • A pain‑point in the user’s motivation (e.g., confusion, friction).
+   • One bullet suggestion to improve that step, grounded in a UX or psychology principle from Growth.Design.
+3. Finally, list Key Takeaways for the overall flow (flow‑level insights).
 
-TASK 2: Identify pain‑points in their motivation (e.g. friction, confusion, anxiety) and opportunities to improve their experience, using any relevant UX or psychology principles from Growth.Design.
-
-For each insight, provide:
-- stepId (or null for flow‑level)
-- brief description of the pain‑point
-- principle name and a one‑line blurb
-- severity (high/medium/low)
-
-OUTPUT **strictly** as JSON:
+OUTPUT strictly as JSON:
 {
   "overview": "…",
-  "insights": [
+  "steps": [
     {
       "stepId":   "123",
       "pain":     "…",
+      "suggestion": "…",
       "principle": { "name":"…", "blurb":"…" },
       "severity": "high"
-    },
-    …
+    }
+    // …
+  ],
+  "keyTakeaways": [
+    { "message": "…", "severity":"medium" }
+    // …
   ]
 }
 `.trim();
@@ -111,6 +114,7 @@ OUTPUT **strictly** as JSON:
   }
 
   try {
+    // Call the LLM
     const aiRes = await openai.chat.completions.create({
       model:       'gpt-4o-mini',
       temperature: 0.2,
@@ -121,6 +125,7 @@ OUTPUT **strictly** as JSON:
       ]
     });
 
+    // Extract, clean, parse
     const raw     = aiRes.choices?.[0]?.message?.content || '';
     const cleaned = stripFences(raw);
 
@@ -135,6 +140,7 @@ OUTPUT **strictly** as JSON:
         .json({ error: 'Invalid JSON from LLM, please retry.' });
     }
 
+    // Return structured insights
     res.json(json);
 
     console.log(
