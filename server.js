@@ -3,7 +3,15 @@ const bodyParser = require('body-parser');
 const cors = require('cors');
 const fetch = require('node-fetch');
 
+const express = require('express');
+const { OpenAI } = require('openai'); 
+
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY      // set in Railway vars
+});
+
 const app = express();
+app.use(express.json());
 app.get('/', (req, res) => {
   res.send('Hello from your MCP!');
 });
@@ -240,3 +248,5 @@ OUTPUT STRICTLY AS JSON WITH THIS SHAPE:
 app.listen(PORT, () => {
   console.log(`✅ MCP server running on port ${PORT}`);
 });
+
+module.exports = app;
