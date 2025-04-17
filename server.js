@@ -1,20 +1,20 @@
 const express = require('express');
-const bodyParser = require('body-parser');
-const cors = require('cors');
-const fetch = require('node-fetch');
-const { OpenAI } = require('openai'); 
+const cors    = require('cors');
+const { OpenAI } = require('openai');
+
 const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY      // set in Railway vars
+  apiKey: process.env.OPENAI_API_KEY
 });
 
 const app = express();
 app.use(express.json());
-app.use(cors());
+app.use(cors());   // ← Allows Access‑Control‑Allow‑Origin: *
 
-app.get('/', (req, res) => {
+/* ——— Root sanity check ——— */
+app.get('/', (_req, res) => {
   res.send('Hello from your MCP!');
 });
-app.use(bodyParser.json());
+
 
 const FIGMA_TOKEN = process.env.FIGMA_TOKEN;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
