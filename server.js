@@ -1,8 +1,8 @@
 // server.js
 
 // 1) Imports & Env‑variable logging
-const express = require('express');
-const cors    = require('cors');
+const express   = require('express');
+const cors      = require('cors');
 const { OpenAI } = require('openai');
 
 const FIGMA_TOKEN    = process.env.FIGMA_TOKEN;
@@ -29,7 +29,7 @@ app.options('*', cors());
 // 4) Root route (sanity check)
 app.get('/', (_req, res) => res.send('Hello from your MCP!'));
 
-// 5) (Optional) your existing conversational‑search routes here…
+// 5) (Optional) your existing conversational‑search routes…
 
 // 6) Flow‑Analyzer endpoint with label‑anchored context inference
 app.post('/flow-analyze', async (req, res) => {
@@ -49,40 +49,43 @@ app.post('/flow-analyze', async (req, res) => {
     }
   );
 
+  // Build a numbered list of step labels for the model to “see”
+  const labelsText = diagramPayload.steps
+    .map((s,i) => `${i+1}. ${s.label}`)
+    .join('\n');
+
   // 7) Build the updated prompt
   const systemMsg = [
-    "You are a senior UX researcher analyzing user-journey diagrams.",
+    "You are a senior UX researcher analyzing user‑journey diagrams.",
     "You receive a set of labeled steps and directed edges (connectors).",
     "Examine each step's `label` value to find domain clues (e.g. 'food delivery', 'cab booking', 'meeting').",
-    "From those labels, extract:",
-    "  • the domain context",
-    "  • the user's primary goal",
-    "  • a related sub-goal.",
-    "Optionally list any keywords you spotted.",
-    "Then focus exclusively on user motivations and emotional arcs."
+    "From those labels, extract the domain context, the user's primary goal, and a related sub‑goal.",
+    "Optionally list an expansive set of domain keywords you spotted (synonyms included).",
+    "Then focus exclusively on user motivations and emotional arcs when making suggestions."
   ].join(' ');
 
   const userMsg = `
-Here is a user-journey diagram as JSON (up to 50 steps):
+Step labels:
+${labelsText}
 
-${JSON.stringify(diagramPayload, null, 2)}
+Now, based on those labels:
 
 TASK 1: Extract:
-  • "context" (e.g. "Food-delivery app onboarding")
-  • "goal" (primary user objective)
+  • "context" (e.g. "Food‑delivery app onboarding")
+  • "goal" (primary user objective, quote the label that inspired it)
   • "subGoal" (secondary benefit or intent)
-  • "extractedKeywords" (optional array of domain words)
+  • "extractedKeywords" (an expansive list of domain words)
 
-TASK 2: Provide a 2–3 sentence "overview" that weaves in the context, goal, and emotional arc.
+TASK 2: Provide a 2–3 sentence "overview" that weaves together context, goal, and emotional arc.
 
 TASK 3: For each step, identify:
-  • A pain-point in the user's motivation.
-  • One bullet "suggestion" to improve that step, grounded in a UX/psychology principle from Growth.Design.
-  • The principle name and a one-line blurb.
+  • A pain‑point in the user's motivation.
+  • One bullet "suggestion" grounded in a relevant Growth.Design principle.
+  • The principle name and a one‑line blurb.
   • A "severity" (high/medium/low).
-  • **Include** the original "label" for clarity.
+  • Include the original "label" for clarity.
 
-TASK 4: List "keyTakeaways" for the overall flow (flow-level insights).
+TASK 4: List "keyTakeaways" for the overall flow (flow‑level insights).
 
 OUTPUT strictly as JSON following this schema:
 {
@@ -109,7 +112,7 @@ OUTPUT strictly as JSON following this schema:
 }
 `.trim();
 
-  // Helper to strip markdown fences
+  // Helper: strip markdown fences
   function stripFences(raw) {
     const m = raw.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
     if (m && m[1]) return m[1].trim();
