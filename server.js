@@ -4,7 +4,7 @@
 // 1) Imports & Env‑variable logging
 // ——————————————————————————————————————————
 const express = require('express');
-const cors = require('cors');
+const cors    = require('cors');
 const { OpenAI } = require('openai');
 
 const FIGMA_TOKEN    = process.env.FIGMA_TOKEN;
@@ -31,8 +31,6 @@ const openai = new OpenAI({
 // ——————————————————————————————————————————
 const app = express();
 app.use(express.json());
-
-// Enable CORS for all routes + allow OPTIONS preflight
 app.use(cors());
 app.options('*', cors());
 
@@ -49,7 +47,7 @@ app.get('/', (_req, res) => {
 // ——————————————————————————————————————————
 
 // ——————————————————————————————————————————
-// 6) Flow‑Analyzer endpoint with LLM call
+// 6) Flow‑Analyzer endpoint with updated user‑journey prompt
 // ——————————————————————————————————————————
 app.post('/flow-analyze', async (req, res) => {
   const { diagramPayload } = req.body;
@@ -68,46 +66,51 @@ app.post('/flow-analyze', async (req, res) => {
     }
   );
 
-  // Build the prompt texts
-  const systemMsg = 'You are a senior UX researcher analysing user‑journey diagrams.';
+  // Build the updated prompt
+  const systemMsg = [
+    "You are a senior UX researcher.",
+    "THIS IS A USER‑JOURNEY DIAGRAM (sequence of user actions and decisions), not a UI wireframe.",
+    "Focus exclusively on the user's motivations, emotional arc, and high‑level goal."
+  ].join(' ');
+
   const userMsg = `
-Here is a user‑journey diagram as JSON:
+Here is a user‑journey diagram as JSON (up to 50 steps):
 
 ${JSON.stringify(diagramPayload, null, 2)}
 
-TASKS
-1. Summarise the overall flow in 2‑3 sentences.
-2. Identify pain‑points and opportunities using any relevant UX / psychology
-   principles from Growth.Design (full catalogue).
-3. Rate severity (high / medium / low) and include a one‑line blurb of the principle.
+TASK 1: Summarise **what the user is trying to achieve** (their goal) and their emotional arc in 2–3 sentences.
 
-OUTPUT STRICTLY AS JSON WITH THIS SHAPE:
+TASK 2: Identify pain‑points in their motivation (e.g. friction, confusion, anxiety) and opportunities to improve their experience, using any relevant UX or psychology principles from Growth.Design.
+
+For each insight, provide:
+- stepId (or null for flow‑level)
+- brief description of the pain‑point
+- principle name and a one‑line blurb
+- severity (high/medium/low)
+
+OUTPUT **strictly** as JSON:
 {
   "overview": "…",
   "insights": [
     {
-      "stepId": "123",          // or null for flow‑level
-      "pain": "…",
-      "principle": {
-        "name":  "Zeigarnik Effect",
-        "blurb": "People remember incomplete tasks…"
-      },
+      "stepId":   "123",
+      "pain":     "…",
+      "principle": { "name":"…", "blurb":"…" },
       "severity": "high"
-    }
+    },
+    …
   ]
 }
 `.trim();
 
-  // Helper: strip ``` fences if present
+  // Helper to strip code fences if present
   function stripFences(raw) {
     const m = raw.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
     if (m && m[1]) return m[1].trim();
-    // fallback: drop stray backticks
     return raw.replace(/`/g, '').trim();
   }
 
   try {
-    // Call the LLM
     const aiRes = await openai.chat.completions.create({
       model:       'gpt-4o-mini',
       temperature: 0.2,
@@ -118,8 +121,7 @@ OUTPUT STRICTLY AS JSON WITH THIS SHAPE:
       ]
     });
 
-    // Extract, clean, parse
-    const raw = aiRes.choices?.[0]?.message?.content || '';
+    const raw     = aiRes.choices?.[0]?.message?.content || '';
     const cleaned = stripFences(raw);
 
     let json;
@@ -133,7 +135,6 @@ OUTPUT STRICTLY AS JSON WITH THIS SHAPE:
         .json({ error: 'Invalid JSON from LLM, please retry.' });
     }
 
-    // All good—return the structured insights
     res.json(json);
 
     console.log(
