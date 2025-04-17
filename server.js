@@ -1,193 +1,73 @@
+// server.js
+
+// ——————————————————————————
+// 1) Env & token logging
+// ——————————————————————————
 const express = require('express');
 const cors    = require('cors');
 const { OpenAI } = require('openai');
 
+const FIGMA_TOKEN     = process.env.FIGMA_TOKEN;
+const OPENAI_API_KEY  = process.env.OPENAI_API_KEY;
+
+console.log(
+  "🔐 Using Figma Token:", 
+  FIGMA_TOKEN     ? FIGMA_TOKEN.slice(0,10) + "..." : "Missing!"
+);
+console.log(
+  "🧠 Using OpenAI Token:", 
+  OPENAI_API_KEY  ? OPENAI_API_KEY.slice(0,10) + "..." : "Missing!"
+);
+
+// ——————————————————————————
+// 2) OpenAI client
+// ——————————————————————————
 const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
+  apiKey: OPENAI_API_KEY
 });
 
+// ——————————————————————————
+// 3) Express setup
+// ——————————————————————————
 const app = express();
 app.use(express.json());
-app.use(cors());   // ← Allows Access‑Control‑Allow‑Origin: *
+app.use(cors());  // adds Access‑Control‑Allow‑Origin: *
 
-/* ——— Root sanity check ——— */
+// ——————————————————————————
+// 4) Root route (sanity check)
+// ——————————————————————————
 app.get('/', (_req, res) => {
   res.send('Hello from your MCP!');
 });
 
+// ——————————————————————————
+// 5) (Optional) Your existing conversational-search routes
+//    e.g. app.post('/search', …)
+// ——————————————————————————
 
-const FIGMA_TOKEN = process.env.FIGMA_TOKEN;
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-
-console.log("🔐 Using Figma Token:", FIGMA_TOKEN ? FIGMA_TOKEN.slice(0, 10) + "..." : "Missing!");
-console.log("🧠 Using OpenAI Token:", OPENAI_API_KEY ? OPENAI_API_KEY.slice(0, 10) + "..." : "Missing!");
-
-app.post('/search', async (req, res) => {
-  const { query, fileKey } = req.body;
-  console.log("📩 Received fileKey:", fileKey);
-
-  try {
-    // Fetch file from Figma
-    const figmaRes = await fetch(`https://api.figma.com/v1/files/${fileKey}`, {
-      headers: { 'X-Figma-Token': FIGMA_TOKEN }
-    });
-
-    if (!figmaRes.ok) {
-      const errorText = await figmaRes.text();
-      console.error(`❌ Figma API error ${figmaRes.status}: ${errorText}`);
-      return res.status(figmaRes.status).send(`Failed to fetch file data from Figma: ${errorText}`);
-    }
-
-    const figmaData = await figmaRes.json();
-
-    if (!figmaData || !figmaData.document) {
-      console.error("❌ Invalid Figma file data:", figmaData);
-      return res.status(500).send("Figma API did not return expected document structure.");
-    }
-
-    const frames = [];
-
-    // Extract relevant data from frames
-    const walk = (node) => {
-      if (node.type === 'FRAME') {
-        const texts = [];
-
-        const extractText = (n) => {
-          if (n.type === 'TEXT') texts.push(n.characters || '');
-          if (n.children) n.children.forEach(extractText);
-        };
-        extractText(node);
-
-        frames.push({
-          name: node.name,
-          text: texts.join(' '),
-          width: node.absoluteBoundingBox?.width || null,
-          height: node.absoluteBoundingBox?.height || null,
-          x: node.absoluteBoundingBox?.x || null,
-          y: node.absoluteBoundingBox?.y || null,
-          type: node.type,
-          childCount: node.children?.length || 0
-        });
-      }
-
-      if (node.children) node.children.forEach(walk);
-    };
-
-    walk(figmaData.document);
-
-    // Call OpenAI with prompt + frame data
-    const openaiRes = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${OPENAI_API_KEY}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        model: 'gpt-4',
-        messages: [
-          {
-            role: 'system',
-            content: `
-You are a design reasoning assistant.
-
-The user will give you a natural language query like "show me permission modals" or "find onboarding screens". Your job is to review a list of Figma frames and return only the ones that best match the intent — even if the match is not explicit.
-
-Each frame includes:
-- name
-- visible text content
-- width and height
-- x and y position
-- node type (e.g., FRAME)
-- number of children (childCount)
-
-Your task is to:
-1. Infer semantic intent from the user's query
-2. Match based on meaning, not just keywords. Look for synonyms, context, UI language, and structure.
-3. Use layout info: small centered frames may be modals; large frames with intro text may be onboarding.
-4. Return a reason explaining your logic in plain English
-5. Rate your confidence: High / Medium / Low
-
-Return a JSON array like this:
-
-[
-  {
-    "name": "Invite Modal",
-    "reason": "Text includes 'invite', frame is small and centered, likely a permission modal.",
-    "confidence": "High"
-  }
-]
-
-If no match, return an empty array: []
-`
-          },
-          {
-            role: 'user',
-            content: `User query: "${query}"\n\nFrames:\n${JSON.stringify(frames)}`
-          }
-        ]
-      })
-    });
-
-    const aiResult = await openaiRes.json();
-    const text = aiResult.choices[0].message.content;
-    console.log("🧠 GPT raw response:\n", text);
-
-    let matches = [];
-    try {
-      const cleaned = text.replace(/```json|```/g, '').trim();
-      matches = JSON.parse(cleaned);
-
-      if (!Array.isArray(matches)) {
-        throw new Error("Parsed result is not an array");
-      }
-    } catch (e) {
-      console.warn("⚠️ Failed to parse GPT response as JSON:", text);
-      return res.status(200).json([
-        {
-          name: "Error",
-          reason: "Could not parse GPT response. Check system prompt or formatting.",
-          confidence: "Low"
-        }
-      ]);
-    }
-
-    res.json(matches);
-  } catch (err) {
-    console.error('❌ Error in /search:', err);
-    res.status(500).send('Internal Server Error');
-  }
-});
-
-const PORT = process.env.PORT || 8080;
-
-// Flow Analyzer route
-/* ----------------------------------------------------
- * Iteration A: just echo counts back to the plugin
- * -------------------------------------------------- */
+// ——————————————————————————
+// 6) Flow‑Analyzer endpoint
+// ——————————————————————————
 app.post('/flow-analyze', async (req, res) => {
   const { diagramPayload } = req.body;
-  if (!diagramPayload)
+  if (!diagramPayload) {
     return res.status(400).json({ error: 'No diagramPayload provided' });
+  }
 
-  /* 1  Lightweight telemetry (counts only) */
+  // Telemetry: log only counts
   const t0 = Date.now();
-  const counts = {
-    steps:       diagramPayload.steps.length,
-    connectors:  diagramPayload.connectors.length,
-    freeText:    diagramPayload.freeText.length
-  };
-  console.log(`[${new Date().toISOString()}] analyse req —`, counts);
+  console.log(
+    `[${new Date().toISOString()}] analyse ➜`,
+    {
+      steps:      diagramPayload.steps.length,
+      connectors: diagramPayload.connectors.length,
+      freeText:   diagramPayload.freeText.length
+    }
+  );
 
-  /* 2  Craft prompt */
-  const prompt = [
-    {
-      role: 'system',
-      content:
-        'You are a senior UX researcher analysing user‑journey diagrams.'
-    },
-    {
-      role: 'user',
-      content:
+  // Build the LLM prompt
+  const systemMsg = 'You are a senior UX researcher analysing user‑journey diagrams.';
+  const userMsg   =
 `Here is a user‑journey diagram as JSON:
 
 ${JSON.stringify(diagramPayload, null, 2)}
@@ -203,48 +83,73 @@ OUTPUT STRICTLY AS JSON WITH THIS SHAPE:
   "overview": "…",
   "insights": [
     {
-      "stepId": "123"   // or null for flow‑level
-      "pain":     "…",
+      "stepId": "123",          // or null for flow‑level
+      "pain": "…",
       "principle": {
-        "name": "Zeigarnik Effect",
+        "name":  "Zeigarnik Effect",
         "blurb": "People remember incomplete tasks…"
       },
       "severity": "high"
     }
   ]
-}`
-    }
-  ];
+}`;
 
-  /* 3  Call OpenAI */
+// Helper to strip ``` fences
+function stripFences(raw) {
+  const m = raw.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+  if (m && m[1]) return m[1].trim();
+  // fallback: remove any backticks
+  return raw.replace(/`/g, '').trim();
+}
+
+try {
+  // Call OpenAI
+  const aiRes = await openai.chat.completions.create({
+    model:       'gpt-4o-mini',
+    temperature: 0.2,
+    max_tokens:  1000,
+    messages: [
+      { role: 'system', content: systemMsg },
+      { role: 'user',   content: userMsg   }
+    ]
+  });
+
+  // Extract & clean
+  const raw     = aiRes.choices?.[0]?.message?.content || '';
+  const cleaned = stripFences(raw);
+
+  let json;
   try {
-    const aiRes = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      temperature: 0.2,
-      max_tokens: 1000,
-      messages: prompt
-    });
-
-    const raw = aiRes.choices?.[0]?.message?.content || '{}';
-    const json = JSON.parse(raw);
-
-    /* 4  Return insights */
-    res.json(json);
-
-    console.log(
-      `…GPT ok (${((Date.now() - t0) / 1000).toFixed(1)} s, ` +
-      `${aiRes.usage.total_tokens} tok)`
-    );
-  } catch (err) {
-    console.error('GPT error:', err);
-    res.status(502).json({ error: 'LLM analysis failed, please retry.' });
+    json = JSON.parse(cleaned);
+  } catch (parseErr) {
+    console.error('JSON.parse failed:', parseErr);
+    console.error('Raw LLM output:', raw);
+    return res
+      .status(502)
+      .json({ error: 'Invalid JSON from LLM, please retry.' });
   }
-});
 
+  // Return the insights
+  res.json(json);
 
+  console.log(
+    `…GPT ok (${((Date.now() - t0)/1000).toFixed(1)}s, `
+    + `${aiRes.usage.total_tokens} tok)`
+  );
 
+} catch (err) {
+  console.error('LLM call failed:', err);
+  res
+    .status(502)
+    .json({ error: 'LLM analysis failed, please retry.' });
+}
+
+// ——————————————————————————
+// 7) Start server
+// ——————————————————————————
+const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`✅ MCP server running on port ${PORT}`);
+  console.log(`MCP listening on port ${PORT}`);
 });
 
 module.exports = app;
