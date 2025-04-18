@@ -5,13 +5,17 @@ const bodyParser = require('body-parser');
 const { Configuration, OpenAIApi } = require('openai');
 
 const app = express();
-app.use(cors());
+// Enable CORS for all origins
+app.use(cors({ origin: '*' }));
+// Handle preflight requests
+app.options('*', cors({ origin: '*' }));
 app.use(bodyParser.json());
 
 const configuration = new Configuration({ apiKey: process.env.OPENAI_API_KEY });
 const openai = new OpenAIApi(configuration);
 
-app.post('/analyze', async (req, res) => {
+// Updated route to match plugin fetch endpoint
+app.post('/flow-analyze', async (req, res) => {
   const { flow, connections } = req.body;
   const steps = flow.map(f => ({ stepId: f.id, name: f.name, text: f.text }));
 
@@ -30,7 +34,6 @@ Return strictly valid JSON array of objects: { stepId, principle, rationale }.`;
       max_tokens: 500,
       temperature: 0.7
     });
-
     const raw = completion.data.choices[0].text.trim();
     let insights;
     try {
@@ -39,7 +42,6 @@ Return strictly valid JSON array of objects: { stepId, principle, rationale }.`;
       console.error('JSON parse error:', e);
       return res.status(500).json({ error: 'Invalid JSON from AI.' });
     }
-
     res.json(insights);
   } catch (error) {
     console.error('OpenAI error:', error);
