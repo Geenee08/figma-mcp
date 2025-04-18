@@ -1,90 +1,51 @@
+// server.js
 const express = require('express');
-const cors    = require('cors');
-const { OpenAI } = require('openai');
+const cors = require('cors');
+const bodyParser = require('body-parser');
+const { Configuration, OpenAIApi } = require('openai');
 
 const app = express();
-app.use(express.json());
 app.use(cors());
-app.options('*', cors());
+app.use(bodyParser.json());
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const configuration = new Configuration({ apiKey: process.env.OPENAI_API_KEY });
+const openai = new OpenAIApi(configuration);
 
-app.get('/', (_req, res) => res.send('Server up'));
+app.post('/analyze', async (req, res) => {
+  const { flow, connections } = req.body;
+  const steps = flow.map(f => ({ stepId: f.id, name: f.name, text: f.text }));
 
-app.post('/flow-analyze', async (req, res) => {
-  const { diagramPayload } = req.body;
-  if (!diagramPayload) return res.status(400).json({ error: 'Missing diagramPayload' });
-
-  const stepList = diagramPayload.steps
-    .map((s, i) =>
-      `${i + 1}. ${s.label}` + (s.goalBlurb ? `\n   Goal: ${s.goalBlurb}` : '')
-    )
-    .join('\n');
-
-  const connList = diagramPayload.connectors
-    .map(c => `${c.from} → ${c.to}`)
-    .join(', ');
-
-  const prompt = `
-Here is a user journey made of labeled steps. Each step may have a user motivation or emotional goal.
-
-Steps:
-${stepList}
-
-Connectors:
-${connList}
-
-TASKS:
-1. Summarize what this journey is about (context).
-2. Describe what the user is trying to achieve (goal).
-3. For each step, write:
-   - label
-   - if present, summarize the goalBlurb
-   - 1 sentence pain-point
-   - 1–2 sentence suggestion
-4. Then share 2–3 overall takeaways.
-
-Respond in this JSON shape:
-{
-  "context": "...",
-  "goal": "...",
-  "steps": [
-    {
-      "label": "...",
-      "goalBlurb": "...",
-      "pain": "...",
-      "suggestion": "..."
-    }
-  ],
-  "keyTakeaways": [ "...", "..." ]
-}
-`.trim();
+  const prompt = `You are a senior UX researcher. Given these steps:
+${JSON.stringify(steps, null, 2)}
+For each step:
+1. Identify 1–2 user pain points.
+2. Recommend one Growth.Design principle.
+3. Provide a one-sentence rationale.
+Return strictly valid JSON array of objects: { stepId, principle, rationale }.`;
 
   try {
-    const aiRes = await openai.chat.completions.create({
+    const completion = await openai.createCompletion({
       model: 'gpt-4o-mini',
-      temperature: 0.3,
-      max_tokens: 1000,
-      messages: [{ role: 'user', content: prompt }],
+      prompt,
+      max_tokens: 500,
+      temperature: 0.7
     });
 
-    const raw = aiRes.choices?.[0]?.message?.content || '';
-    const cleaned = raw.replace(/^```json\s*/, '').replace(/```$/, '').trim();
-
-    let json;
+    const raw = completion.data.choices[0].text.trim();
+    let insights;
     try {
-      json = JSON.parse(cleaned);
+      insights = JSON.parse(raw);
     } catch (e) {
-      console.error('Parse failed:', raw);
-      return res.status(502).json({ error: 'Invalid JSON from GPT' });
+      console.error('JSON parse error:', e);
+      return res.status(500).json({ error: 'Invalid JSON from AI.' });
     }
 
-    res.json(json);
-  } catch (err) {
-    console.error('LLM error:', err);
-    res.status(502).json({ error: 'GPT failed' });
+    res.json(insights);
+  } catch (error) {
+    console.error('OpenAI error:', error);
+    res.status(500).json({ error: 'Analysis failed.' });
   }
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Listening on ${PORT}`));
+app.listen(PORT, () => console.log(`Server listening on port ${PORT}`));
